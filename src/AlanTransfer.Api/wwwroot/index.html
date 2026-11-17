@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AlanTransfer Demo — Ortak İş Defteri</title>
+<style>
+  :root { --b:#1a4f8c; --g:#1f9d55; --r:#c0392b; --bg:#f4f6f9; --line:#e2e6ec; }
+  * { box-sizing:border-box; font-family:system-ui,Segoe UI,Roboto,sans-serif; }
+  body { margin:0; background:var(--bg); color:#1c2430; }
+  header { background:var(--b); color:#fff; padding:14px 20px; }
+  header h1 { margin:0; font-size:18px; }
+  header p { margin:4px 0 0; font-size:13px; opacity:.85; }
+  main { max-width:1100px; margin:20px auto; padding:0 16px; display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card h2 { margin:0 0 12px; font-size:15px; }
+  .full { grid-column:1 / -1; }
+  label { font-size:12px; color:#5a6676; display:block; margin:8px 0 3px; }
+  input,select { width:100%; padding:8px; border:1px solid var(--line); border-radius:7px; font-size:14px; }
+  button { background:var(--b); color:#fff; border:0; padding:9px 14px; border-radius:7px; cursor:pointer; font-size:14px; margin-top:10px; }
+  button.ghost { background:#eef2f7; color:var(--b); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:20px; background:#eef2f7; color:#44506a; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:7px 6px; border-bottom:1px solid var(--line); }
+  .log { background:#0f1726; color:#cfe3ff; font-family:ui-monospace,monospace; font-size:12px; padding:12px; border-radius:8px; height:180px; overflow:auto; white-space:pre-wrap; }
+  .ok { color:#7ee2a8; } .err { color:#ff9a8f; }
+  .who { font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AlanTransfer — Ortak İş Defteri Demo</h1>
+  <p>Tek rezervasyon kaydı · dört rol · havuzda eş zamanlı kabul kontrolü · rol bazlı yetki</p>
+</header>
+
+<main>
+  <div class="card">
+    <h2>1 · Giriş</h2>
+    <label>Kullanıcı</label>
+    <select id="userSel">
+      <option value="operasyon">operasyon (Operasyon)</option>
+      <option value="admin">admin (Admin)</option>
+      <option value="acenteA">acenteA (Acente — Akdeniz)</option>
+      <option value="acenteB">acenteB (Acente — Rivyera)</option>
+      <option value="sofor1">sofor1 (Sürücü)</option>
+      <option value="sofor2">sofor2 (Sürücü)</option>
+      <option value="muhasebe">muhasebe (Muhasebe)</option>
+    </select>
+    <button onclick="login()">Giriş yap</button>
+    <span id="whoami" class="who"></span>
+  </div>
+
+  <div class="card">
+    <h2>2 · Rezervasyon oluştur</h2>
+    <div class="row">
+      <div style="flex:1"><label>Alış</label><input id="pu" value="İstanbul Havalimanı (IST)"></div>
+      <div style="flex:1"><label>Bırakış</label><input id="do" value="Kadıköy - Otel"></div>
+    </div>
+    <div class="row">
+      <div style="flex:1"><label>Yolcu</label><input id="pax" type="number" value="3"></div>
+      <div style="flex:1"><label>Fiyat</label><input id="price" type="number" value="1350"></div>
+    </div>
+    <button onclick="createRes()">Oluştur</button>
+  </div>
+
+  <div class="card full">
+    <h2>3 · İş defteri <span class="pill" id="roleTag">—</span></h2>
+    <button class="ghost" onclick="refresh()">Yenile</button>
+    <table id="tbl"><thead><tr><th>Kod</th><th>Rota</th><th>Durum</th><th>Atama</th><th>Sürücü</th><th>İşlem</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="card full">
+    <h2>4 · Eş zamanlılık testi (demonun yıldızı)</h2>
+    <p style="font-size:13px;color:#5a6676;margin:0 0 8px">
+      Bir işi havuza bırak, sonra iki sürücü aynı anda kabul etmeye çalışsın.
+      Yalnızca biri alır; diğeri <b>409 Conflict</b> alır.
+    </p>
+    <label>Havuzdaki iş ID</label>
+    <input id="raceId" placeholder="örn. 1" style="max-width:160px">
+    <button onclick="race()">sofor1 + sofor2 aynı anda kabul etsin</button>
+    <div id="log" class="log"></div>
+  </div>
+</main>
+
+<script>
+const API = location.origin + "/api/v1";
+let token = null, role = null, username = null;
+
+function log(msg, cls=""){ const l=document.getElementById("log"); l.innerHTML += `<span class="${cls}">${msg}</span>\n`; l.scrollTop=l.scrollHeight; }
+
+async function api(path, opts={}, tok=token){
+  const h = {"Content-Type":"application/json"};
+  if (tok) h["Authorization"] = "Bearer "+tok;
+  const res = await fetch(API+path, {...opts, headers:{...h, ...(opts.headers||{})}});
+  let body=null; try{ body=await res.json(); }catch{}
+  return { status:res.status, body };
+}
+
+async function loginAs(user){
+  const r = await api("/auth/login", {method:"POST", body:JSON.stringify({username:user,password:"1234"})}, null);
+  return r.body;
+}
+
+async function login(){
+  const user = document.getElementById("userSel").value;
+  const d = await loginAs(user);
+  token=d.token; role=d.role; username=d.username;
+  document.getElementById("whoami").textContent = ` ✓ ${username} / ${role}`;
+  document.getElementById("roleTag").textContent = role;
+  refresh();
+}
+
+async function createRes(){
+  if(!token) return alert("Önce giriş yapın");
+  const r = await api("/reservations", {method:"POST", body:JSON.stringify({
+    pickUp:pu.value, dropOff:do_.value, pickupAt:new Date(Date.now()+86400000).toISOString(),
+    paxCount:+pax.value, price:+price.value, currency:"TRY"
+  })});
+  refresh();
+}
+const do_ = document.getElementById("do");
+
+async function refresh(){
+  if(!token){ return; }
+  const r = await api("/reservations");
+  const tb = document.querySelector("#tbl tbody"); tb.innerHTML="";
+  (r.body||[]).forEach(x=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML = `<td>${x.code}</td><td>${x.pickUp} → ${x.dropOff}</td><td>${x.status}</td><td>${x.assignmentType}</td><td>${x.driverId??"—"}</td>
+      <td>${actions(x)}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+function actions(x){
+  if(role==="Operasyon"||role==="Admin"){
+    return `<button class="ghost" onclick="pool(${x.id})">Havuza bırak</button>`;
+  }
+  if(role==="Surucu" && x.status==="InPool"){
+    return `<button class="ghost" onclick="accept(${x.id})">Kabul et</button>`;
+  }
+  if(role==="Surucu" && x.driverId && x.status==="Accepted"){
+    return `<button class="ghost" onclick="setStatus(${x.id},'Completed')">Tamamla</button>`;
+  }
+  return "—";
+}
+
+async function pool(id){ await api(`/reservations/${id}/send-to-pool`,{method:"POST"}); refresh(); }
+async function accept(id){ const r=await api(`/reservations/${id}/accept`,{method:"POST"}); if(r.status!==200) alert(r.body?.message||"Alınamadı"); refresh(); }
+async function setStatus(id,s){ await api(`/reservations/${id}/status`,{method:"POST",body:JSON.stringify({step:s})}); refresh(); }
+
+async function race(){
+  const id = +document.getElementById("raceId").value;
+  if(!id) return alert("Havuzdaki iş ID girin");
+  log(`\n--- İş #${id} için yarış başlıyor ---`);
+  const t1 = (await loginAs("sofor1")).token;
+  const t2 = (await loginAs("sofor2")).token;
+  const [a,b] = await Promise.all([
+    api(`/reservations/${id}/accept`,{method:"POST"},t1),
+    api(`/reservations/${id}/accept`,{method:"POST"},t2)
+  ]);
+  report("sofor1", a); report("sofor2", b);
+  const win=[a,b].filter(x=>x.status===200).length;
+  log(win===1 ? "✓ Sonuç: işi yalnızca bir sürücü aldı. Eş zamanlılık korundu." : "⚠ Beklenmeyen sonuç: "+win+" kabul.", win===1?"ok":"err");
+  refresh();
+}
+function report(who,r){
+  if(r.status===200) log(`${who}: 200 OK — işi aldı`, "ok");
+  else log(`${who}: ${r.status} — ${r.body?.message||"reddedildi"}`, "err");
+}
+</script>
+</body>
+</html>

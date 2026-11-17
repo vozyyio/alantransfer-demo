@@ -1,0 +1,29 @@
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: alantransfer-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Your_strong_Pass123"
+      MSSQL_PID: "Developer"
+      MSSQL_MEMORY_LIMIT_MB: "1536"   # mevcut servisleri korumak için bellek sınırı
+    ports:
+      - "14333:1433"                  # host portu çakışmayı önlemek için 14333
+    volumes:
+      - mssql-data:/var/opt/mssql
+    restart: unless-stopped
+
+  api:
+    build: ./src/AlanTransfer.Api
+    container_name: alantransfer-api
+    environment:
+      ConnectionStrings__Default: "Server=db;Database=AlanTransferDemo;User Id=sa;Password=Your_strong_Pass123;TrustServerCertificate=True;"
+      ASPNETCORE_ENVIRONMENT: "Production"
+    ports:
+      - "8088:8080"                   # demo http://SUNUCU:8088 (ya da Cloudflare arkasında alt domain)
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  mssql-data:

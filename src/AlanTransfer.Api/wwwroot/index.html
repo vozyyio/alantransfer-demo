@@ -68,7 +68,7 @@
   <div class="card full">
     <h2>3 · İş defteri <span class="pill" id="roleTag">—</span></h2>
     <button class="ghost" onclick="refresh()">Yenile</button>
-    <table id="tbl"><thead><tr><th>Kod</th><th>Rota</th><th>Durum</th><th>Atama</th><th>Sürücü</th><th>İşlem</th></tr></thead><tbody></tbody></table>
+    <table id="tbl"><thead><tr><th>#</th><th>Kod</th><th>Rota</th><th>Durum</th><th>Atama</th><th>Sürücü</th><th>İşlem</th></tr></thead><tbody></tbody></table>
   </div>
 
   <div class="card full">
@@ -128,18 +128,20 @@ async function refresh(){
   const tb = document.querySelector("#tbl tbody"); tb.innerHTML="";
   (r.body||[]).forEach(x=>{
     const tr=document.createElement("tr");
-    tr.innerHTML = `<td>${x.code}</td><td>${x.pickUp} → ${x.dropOff}</td><td>${x.status}</td><td>${x.assignmentType}</td><td>${x.driverId??"—"}</td>
+    tr.innerHTML = `<td>${x.id}</td><td>${x.code}</td><td>${x.pickUp} → ${x.dropOff}</td><td>${x.status}</td><td>${x.assignmentType}</td><td>${x.driverId??"—"}</td>
       <td>${actions(x)}</td>`;
     tb.appendChild(tr);
   });
 }
 
 function actions(x){
-  if(role==="Operasyon"||role==="Admin"){
-    return `<button class="ghost" onclick="pool(${x.id})">Havuza bırak</button>`;
+  if(x.status==="InPool"){
+    let b = `<button class="ghost" onclick="race(${x.id})">2 sürücü yarıştır</button>`;
+    if(role==="Surucu") b += ` <button class="ghost" onclick="accept(${x.id})">Kabul et</button>`;
+    return b;
   }
-  if(role==="Surucu" && x.status==="InPool"){
-    return `<button class="ghost" onclick="accept(${x.id})">Kabul et</button>`;
+  if((role==="Operasyon"||role==="Admin") && (x.status==="Paid"||x.status==="Created"||x.status==="Assigned")){
+    return `<button class="ghost" onclick="pool(${x.id})">Havuza bırak</button>`;
   }
   if(role==="Surucu" && x.driverId && x.status==="Accepted"){
     return `<button class="ghost" onclick="setStatus(${x.id},'Completed')">Tamamla</button>`;
@@ -151,9 +153,9 @@ async function pool(id){ await api(`/reservations/${id}/send-to-pool`,{method:"P
 async function accept(id){ const r=await api(`/reservations/${id}/accept`,{method:"POST"}); if(r.status!==200) alert(r.body?.message||"Alınamadı"); refresh(); }
 async function setStatus(id,s){ await api(`/reservations/${id}/status`,{method:"POST",body:JSON.stringify({step:s})}); refresh(); }
 
-async function race(){
-  const id = +document.getElementById("raceId").value;
-  if(!id) return alert("Havuzdaki iş ID girin");
+async function race(id){
+  id = id || +document.getElementById("raceId").value;
+  if(!id) return alert("Havuzdaki işin # (ID) değerini girin — tablodaki ilk sütun");
   log(`\n--- İş #${id} için yarış başlıyor ---`);
   const t1 = (await loginAs("sofor1")).token;
   const t2 = (await loginAs("sofor2")).token;

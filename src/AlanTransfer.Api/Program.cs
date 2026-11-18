@@ -140,8 +140,8 @@ app.MapGet("/api/v1/reservations", async (ClaimsPrincipal user, AppDbContext db)
     }
     // Admin / Operasyon / Muhasebe: tümü
 
-    var list = await q.Select(r => Map(r)).ToListAsync();
-    return Results.Ok(list);
+    var items = await q.ToListAsync();
+    return Results.Ok(items.Select(Map).ToList());
 }).RequireAuthorization();
 
 // ---- Tekil kayıt (kaynak bazlı yetki kontrolü) ----
@@ -193,11 +193,11 @@ app.MapPost("/api/v1/reservations/{id:int}/assign", async (int id, AssignRequest
 // ---- Havuzdaki uygun işler (Sürücü) ----
 app.MapGet("/api/v1/pool", async (ClaimsPrincipal user, AppDbContext db) =>
 {
-    var list = await db.Reservations.AsNoTracking()
+    var items = await db.Reservations.AsNoTracking()
         .Where(r => r.Status == ReservationStatus.InPool)
         .OrderBy(r => r.PickupAt)
-        .Select(r => Map(r)).ToListAsync();
-    return Results.Ok(list);
+        .ToListAsync();
+    return Results.Ok(items.Select(Map).ToList());
 }).RequireAuthorization(p => p.RequireRole(Roles.Surucu));
 
 // ---- İşi kabul et (Sürücü) — EŞ ZAMANLILIK KONTROLÜ ----
